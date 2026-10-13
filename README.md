@@ -2,7 +2,9 @@
 
 **Make your AI agent ask before it touches your mouse.**
 
-<!-- demo: assets/demo.gif (recorded with the real flow: ask, Allow, the agent drives, Esc) -->
+<img src="assets/demo.gif" alt="An agent asks for control, gets Allow, drags a build toward the notch, and Esc stops it halfway" width="720">
+
+<sub>Recorded from <code>ask-control --demo</code>, which plays the real UI with a drawn cursor.</sub>
 
 Recently a Claude Code session was testing one of my Mac apps. It wrote a ten-line Swift script, and that script started dragging files across my screen while I was in the middle of typing. It never asked. Computer-use tools have their own approval screens, but a script that posts mouse events from the shell skips every one of them.
 
