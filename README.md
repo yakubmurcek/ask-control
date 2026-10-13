@@ -23,6 +23,8 @@ cd ask-control && make install   # builds with swiftc into ~/.local/bin
 
 You need macOS and the Xcode command line tools (`xcode-select --install`). Tested on macOS 27.
 
+See it without handing anything over: `ask-control --demo` plays the whole flow with a drawn cursor. Your real mouse and keyboard are never touched.
+
 ## Give it to your agent
 
 Paste this into your `CLAUDE.md` or `AGENTS.md`:
@@ -56,6 +58,7 @@ ask-control --done   # hand control back early
 | `-- cmd …` | run `cmd` under control and kill it when stopped |
 | `--status` | exit 0 while control is active |
 | `--done` | end control now |
+| `--demo` | play a scripted preview (touches no input) |
 
 Exit codes: `0` allowed (with `-- cmd`, the command's own exit code), `1` denied or no answer, `2` bad arguments, `3` stopped.
 

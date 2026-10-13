@@ -413,6 +413,8 @@ final class CursorHalo {
   var history: [CGPoint] = []
   let screen: NSScreen
   var timer: Timer?
+  /// Where the pointer is, in global screen coordinates; the demo supplies a scripted one.
+  var source: () -> CGPoint = { NSEvent.mouseLocation }
 
   init(screen: NSScreen, in host: CALayer) {
     self.screen = screen
@@ -473,7 +475,7 @@ final class CursorHalo {
   func stop() { timer?.invalidate() }
 
   func tick() {
-    let m = NSEvent.mouseLocation
+    let m = source()
     let onScreen = screen.frame.contains(m)
     // Centre the halo on the arrow's body, a little below and right of the hotspot.
     let p = CGPoint(x: m.x - screen.frame.minX + 4, y: m.y - screen.frame.minY - 7)
