@@ -1,7 +1,7 @@
 // ask-control: ask the human before an AI agent drives their Mac's mouse or keyboard.
 //
 // Shows a native consent prompt (Deny is the default, auto-deny after --timeout s).
-// Allow starts a control window of --seconds: a cursor halo, edge line and notch pill, and an
+// Allow starts a control window of --seconds: a cursor halo, edge line and a pill at the bottom centre, and an
 // abort on Esc, any real key press or real mouse movement/click. Real input is told
 // apart from synthetic input by the CGEvent source pid (hardware events carry pid 0,
 // events posted by a process carry its pid). See README.md for the contract.
