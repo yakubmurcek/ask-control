@@ -1,12 +1,18 @@
 # ask-control
 
-A consent prompt for AI agents that want to use your Mac's mouse and keyboard.
+**Make your AI agent ask before it touches your mouse.**
 
-Coding agents can move your cursor and type on your Mac with a ten-line script (CGEvent, cliclick, AppleScript), and that skips every approval screen. ask-control puts a native prompt in front of it. The agent says what it wants to do and for how long. Nothing moves until you click Allow, and Esc or a nudge of the mouse takes your Mac back at once.
+<!-- demo: assets/demo.gif (recorded with the real flow: ask, Allow, the agent drives, Esc) -->
 
-- **Asks first.** A card says what the agent wants to do and why. Deny is the default (Return), and it denies on its own after 60 s.
-- **Shows it.** While the agent is in control, your pointer wears a terracotta halo with a short ember trail, a thin line traces the screen edge, and a pill under the notch counts down.
-- **Stops it.** Press Esc, or move or click the real mouse, and the agent's command is killed. The agent's own synthetic events don't trip it.
+Recently a Claude Code session was testing one of my Mac apps. It wrote a ten-line Swift script, and that script started dragging files across my screen while I was in the middle of typing. It never asked. Computer-use tools have their own approval screens, but a script that posts mouse events from the shell skips every one of them.
+
+ask-control is the step that was missing. Before the agent moves anything, it has to ask, in plain words:
+
+- **It asks.** A small card says what the agent wants to do and for how long. Deny is the default, Return denies, and no answer in 60 seconds also means no.
+- **You see it.** While the agent drives, your pointer wears a terracotta halo and a pill under the notch counts down.
+- **You take it back.** Press Esc or just move your mouse. The agent's command is killed on the spot.
+
+It's one small Swift binary, with no dependencies and nothing running in the background.
 
 ## Install
 
@@ -15,11 +21,11 @@ git clone https://github.com/yakubmurcek/ask-control
 cd ask-control && make install   # builds with swiftc into ~/.local/bin
 ```
 
-You need the Xcode command line tools. It's tested on macOS 27, light mode; the dark-mode colours are set but haven't been looked at yet.
+You need macOS and the Xcode command line tools (`xcode-select --install`). Tested on macOS 27.
 
-## Tell your agent
+## Give it to your agent
 
-Paste this into your `CLAUDE.md` / `AGENTS.md`:
+Paste this into your `CLAUDE.md` or `AGENTS.md`:
 
 ```
 Before driving my Mac's mouse or keyboard any way other than your own computer-use
@@ -27,11 +33,13 @@ approval (CGEvent, cliclick, osascript keystrokes), run
 `ask-control "<what and why>" --seconds N -- <command>` and go ahead only on exit 0.
 ```
 
+That's it. The next time your agent wants to click around, you get the card instead of a surprise.
+
 ## Use
 
 ```bash
-# Wrap the command that drives input. ask-control runs it in its own process group
-# and kills that group on Esc, real mouse input, or when the time is up.
+# Wrap the command that drives input. It runs in its own process group,
+# and that group is killed on Esc, on real mouse input, or when time is up.
 ask-control "Drag the build onto the notch to test the drop animation" --seconds 30 -- ./drag-test
 
 # Or gate a script that checks the stop-file itself before every event.
@@ -43,19 +51,31 @@ ask-control --done   # hand control back early
 | Flag | |
 |---|---|
 | `--seconds N` | how long control lasts (default 30) |
-| `--timeout N` | how long the prompt waits before it denies (default 60) |
-| `--as NAME` | who is asking: "NAME wants control" (default Claude) |
+| `--timeout N` | how long the card waits before it denies (default 60) |
+| `--as NAME` | who is asking, e.g. `--as Codex` (default Claude) |
 | `-- cmd …` | run `cmd` under control and kill it when stopped |
 | `--status` | exit 0 while control is active |
 | `--done` | end control now |
 
-Exit codes: `0` allowed (or, with `-- cmd`, the command's own exit code), `1` denied or no answer, `2` bad arguments, `3` stopped.
+Exit codes: `0` allowed (with `-- cmd`, the command's own exit code), `1` denied or no answer, `2` bad arguments, `3` stopped.
 
-## How it tells you from the agent
+## How it tells your hand from the agent's
 
-A listen-only event tap reads where each input event came from. Events from real hardware have a source process ID of 0. Events an agent posts carry that agent's PID, so the agent's own drags never stop it, while yours do. Esc is also polled from the hardware key state, in case the tap gets no key events (no Input Monitoring permission, or Secure Keyboard Entry is on).
+Every input event on macOS records which process posted it. Events from real hardware carry process ID 0. Events from the agent's script carry the script's PID. ask-control listens to the event stream and ignores everything with a PID, so the agent's own drags never stop it, but your first nudge of the mouse does.
+
+Esc is also read straight from the keyboard state, so it still works if the event tap gets no key events (for example, with Secure Keyboard Entry on).
 
 Every allow, deny and stop is logged to `~/.cache/ask-control/log`.
+
+## FAQ
+
+**Doesn't Claude's computer use already ask?** Its own tool does, app by app. Scripts the agent writes and runs through the shell don't go through that tool.
+
+**Can an agent just skip it?** Yes. It's a rule in your agent's instructions, not a sandbox. It makes the polite path one command long and visible to you; it won't stop code that is trying to get around it.
+
+**Does it work with Codex, Cursor and the rest?** Anything that can run a shell command can use it. `--as` changes the name on the card.
+
+**Linux or Windows?** No, macOS only.
 
 ## License
 

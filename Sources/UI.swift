@@ -1,14 +1,15 @@
 // ask-control visuals, in Claude's palette: warm ivory, one terracotta accent, a serif title.
-// The motif is a small terracotta light: it circles the consent card while it waits, then
-// becomes a halo with an ember trail on the real pointer while the agent has control.
-// Pure Core Animation, no assets.
-// Honours Reduce Motion (no orbit, no springs, no ripples) and light/dark appearance.
+// The card's cursor mark ripples while it waits; once allowed, the real pointer wears a
+// terracotta halo with an ember trail, a thin line traces the screen edge, and a pill hangs
+// under the notch. Pure Core Animation, no assets.
+// Honours Reduce Motion (no springs, ripples or draw-on) and light/dark appearance.
 import AppKit
 import QuartzCore
 import CoreImage
 
 let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-let isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+let isDark = ProcessInfo.processInfo.environment["ASK_CONTROL_APPEARANCE"].map { $0 == "dark" }  // for testing
+  ?? (UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark")
 
 func hex(_ v: UInt32, _ a: CGFloat = 1) -> NSColor {
   NSColor(srgbRed: CGFloat(v >> 16 & 0xff) / 255, green: CGFloat(v >> 8 & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: a)
@@ -18,7 +19,7 @@ func hex(_ v: UInt32, _ a: CGFloat = 1) -> NSColor {
 enum Palette {
   static let accent = hex(0xD97757)                          // terracotta
   static let accentDeep = hex(0xC6613F)                      // pressed / hover
-  static let ember = hex(0xF2A07B)                           // the circling light
+  static let ember = hex(0xF2A07B)                           // the cursor's trail
   static let surface = isDark ? hex(0x262624) : hex(0xFAF9F5)  // ivory
   static let hairline = isDark ? hex(0x3D3C38) : hex(0xE8E6DC)
   static let edge = isDark ? hex(0x45443F) : hex(0xDDD9CC)
@@ -53,33 +54,6 @@ func stroke(_ path: CGPath, _ frame: CGRect, width: CGFloat, color: NSColor) -> 
   return s
 }
 
-func roundedPerimeter(_ r: CGRect, _ radius: CGFloat) -> CGFloat {
-  2 * (r.width + r.height) - 8 * radius + 2 * .pi * radius
-}
-
-/// A short bright segment that travels around `path` forever: a crisp core plus a soft halo.
-func comet(_ path: CGPath, frame: CGRect, perimeter: CGFloat, length: CGFloat, width: CGFloat, period: CFTimeInterval) -> CALayer {
-  let box = CALayer()
-  box.frame = frame
-  for (w, r, o, c) in [(width * 3, width * 1.5, Float(0.5), Palette.accent), (width, 0, Float(1), Palette.ember)] {
-    let s = stroke(path, frame, width: w, color: c)
-    s.lineDashPattern = [NSNumber(value: Double(length)), NSNumber(value: Double(perimeter))]
-    s.opacity = o
-    if r > 0 { s.filters = blur(r) }
-    if !reduceMotion {
-      let a = CABasicAnimation(keyPath: "lineDashPhase")
-      a.fromValue = 0
-      a.toValue = -(perimeter + length)
-      a.duration = period
-      a.repeatCount = .infinity
-      s.add(a, forKey: "orbit")
-    }
-    box.addSublayer(s)
-  }
-  if reduceMotion { box.opacity = 0 }
-  return box
-}
-
 /// Rounded rect as two halves that both start at top centre (where the pill hangs) and
 /// meet at bottom centre, so a draw-on animation runs down both sides symmetrically.
 func splitRoundedRect(_ r: CGRect, radius: CGFloat) -> [CGPath] {
@@ -92,17 +66,6 @@ func splitRoundedRect(_ r: CGRect, radius: CGFloat) -> [CGPath] {
     p.addLine(to: CGPoint(x: r.midX, y: r.minY))
     return p
   }
-}
-
-/// Closed rounded rect that starts just after the top-left corner and runs clockwise.
-func loopFromTopLeft(_ r: CGRect, radius: CGFloat) -> CGPath {
-  let p = CGMutablePath()
-  p.move(to: CGPoint(x: r.minX + radius, y: r.maxY))
-  p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.maxY), tangent2End: CGPoint(x: r.maxX, y: r.minY), radius: radius)
-  p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.minY), tangent2End: CGPoint(x: r.minX, y: r.minY), radius: radius)
-  p.addArc(tangent1End: CGPoint(x: r.minX, y: r.minY), tangent2End: CGPoint(x: r.minX, y: r.maxY), radius: radius)
-  p.addArc(tangent1End: CGPoint(x: r.minX, y: r.maxY), tangent2End: CGPoint(x: r.maxX, y: r.maxY), radius: radius)
-  return p
 }
 
 /// Spring the view in from slightly small and low (scale about its centre).
@@ -396,12 +359,6 @@ final class ConsentCard: NSObject {
       stack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
     ])
     root.addSubview(card)
-    // The circling light rides the card's own edge.
-    let orbit = LayerView(frame: root.bounds)
-    let edge = loopFromTopLeft(cardRect.insetBy(dx: 2, dy: 2), radius: radius - 2)
-    orbit.layer!.addSublayer(comet(edge, frame: root.bounds, perimeter: roundedPerimeter(cardRect, radius),
-                                   length: 110, width: 2.5, period: 3.6))
-    root.addSubview(orbit)
     panel.contentView = root
   }
 
