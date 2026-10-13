@@ -33,13 +33,13 @@ final class Demo {
     }
     stage = window(level: .screenSaver)
     top = window(level: NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2))
-    pos = CGPoint(x: f.midX + 260, y: f.minY + f.height * 0.22)
+    pos = CGPoint(x: f.midX + 260, y: f.minY + f.height * 0.36)
 
     // Stage: warm paper, and one plain window holding the build to drag.
     let root = stage.contentView!.layer!
     root.backgroundColor = (isDark ? hex(0x1F1E1D) : hex(0xF0EEE6)).cgColor
     let win = CALayer()
-    let wr = CGRect(x: f.width / 2 - 470, y: f.height * 0.2, width: 300, height: 210)
+    let wr = CGRect(x: f.width / 2 - 520, y: f.height * 0.42, width: 300, height: 210)
     win.frame = wr
     win.backgroundColor = Palette.surface.cgColor
     win.cornerRadius = 12
@@ -116,7 +116,7 @@ final class Demo {
   /// A keystroke bubble, so a viewer can see the key that was pressed.
   func showKey(_ label: String) {
     let host = top.contentView!
-    let k = NSView(frame: NSRect(x: host.bounds.midX - 34, y: host.bounds.height * 0.16, width: 68, height: 42))
+    let k = NSView(frame: NSRect(x: host.bounds.midX - 34, y: host.bounds.height * 0.3, width: 68, height: 42))
     k.wantsLayer = true
     k.layer?.cornerRadius = 10
     k.layer?.cornerCurve = .continuous
