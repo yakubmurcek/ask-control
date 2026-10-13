@@ -1,7 +1,7 @@
 // ask-control visuals, in Claude's palette: warm ivory, one terracotta accent, a serif title.
 // The card's cursor mark ripples while it waits; once allowed, the real pointer wears a
-// terracotta halo with an ember trail, a thin line traces the screen edge, and a pill hangs
-// under the notch. Pure Core Animation, no assets.
+// terracotta halo with an ember trail, a thin line traces the screen edge, and a pill sits
+// at the bottom centre, clear of the notch (notch apps open their islands there). Pure Core Animation, no assets.
 // Honours Reduce Motion (no springs, ripples or draw-on) and light/dark appearance.
 import AppKit
 import QuartzCore
@@ -54,16 +54,16 @@ func stroke(_ path: CGPath, _ frame: CGRect, width: CGFloat, color: NSColor) -> 
   return s
 }
 
-/// Rounded rect as two halves that both start at top centre (where the pill hangs) and
-/// meet at bottom centre, so a draw-on animation runs down both sides symmetrically.
+/// Rounded rect as two halves that both start at bottom centre (where the pill sits) and
+/// meet at top centre, so a draw-on animation runs up both sides symmetrically.
 func splitRoundedRect(_ r: CGRect, radius: CGFloat) -> [CGPath] {
   [1.0, -1.0].map { (side: CGFloat) in
     let p = CGMutablePath()
     let x0 = side > 0 ? r.maxX : r.minX
-    p.move(to: CGPoint(x: r.midX, y: r.maxY))
-    p.addArc(tangent1End: CGPoint(x: x0, y: r.maxY), tangent2End: CGPoint(x: x0, y: r.minY), radius: radius)
-    p.addArc(tangent1End: CGPoint(x: x0, y: r.minY), tangent2End: CGPoint(x: r.midX, y: r.minY), radius: radius)
-    p.addLine(to: CGPoint(x: r.midX, y: r.minY))
+    p.move(to: CGPoint(x: r.midX, y: r.minY))
+    p.addArc(tangent1End: CGPoint(x: x0, y: r.minY), tangent2End: CGPoint(x: x0, y: r.maxY), radius: radius)
+    p.addArc(tangent1End: CGPoint(x: x0, y: r.maxY), tangent2End: CGPoint(x: r.midX, y: r.maxY), radius: radius)
+    p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
     return p
   }
 }
@@ -392,9 +392,9 @@ final class ConsentCard: NSObject {
     guard !decided else { return }
     decided = true
     timer?.invalidate()
-    // Allowed: the card rises toward the notch while the overlay already starts, so there is
+    // Allowed: the card sinks toward the pill while the overlay already starts, so there is
     // no dead air between them. Denied: it just recedes, then we report.
-    fadeAway(root, to: ok ? 0.92 : 0.97, dy: ok ? 40 : 0, duration: ok ? 0.26 : 0.16) { [self] in
+    fadeAway(root, to: ok ? 0.92 : 0.97, dy: ok ? -40 : 0, duration: ok ? 0.26 : 0.16) { [self] in
       panel.orderOut(nil)
       if !ok { onDecision(ok, why) }
     }
@@ -601,8 +601,9 @@ final class ControlOverlay {
     let h: CGFloat = 42
     let w = row.fittingSize.width + 28
     let vf = screen.visibleFrame
-    // Hangs under the notch: the one spot no app puts its own controls in.
-    let pillRect = NSRect(x: root.bounds.midX - w / 2, y: vf.maxY - screen.frame.minY - h - 8, width: w, height: h)
+    // Bottom centre, just above the Dock. Never under the notch: notch apps (drop shelves,
+    // islands) open there, and the pill would hide the very thing being tested.
+    let pillRect = NSRect(x: root.bounds.midX - w / 2, y: vf.minY - screen.frame.minY + 16, width: w, height: h)
     pillBox = LayerView(frame: pillRect.insetBy(dx: -40, dy: -40))
     pill = surface(NSRect(x: 40, y: 40, width: w, height: h), radius: h / 2)
     pill.addSubview(row)
@@ -629,7 +630,7 @@ final class ControlOverlay {
         d.add(a, forKey: "draw")
       }
     }
-    springIn(pillBox, from: 0.8, dy: 26)
+    springIn(pillBox, from: 0.8, dy: -26)
     cursor.start()
     let a = CABasicAnimation(keyPath: "strokeEnd")
     a.fromValue = 1

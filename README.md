@@ -2,7 +2,7 @@
 
 **Make your AI agent ask before it touches your mouse.**
 
-<img src="assets/demo.gif" alt="An agent asks for control, gets Allow, drags a build toward the notch, and Esc stops it halfway" width="720">
+<img src="assets/demo.gif" alt="An agent asks for control, gets Allow, drags a build across the screen, and Esc stops it halfway" width="720">
 
 <sub>Recorded from <code>ask-control --demo</code>, which plays the real UI with a drawn cursor.</sub>
 
@@ -11,7 +11,7 @@ Recently a Claude Code session was testing one of my Mac apps. It wrote a ten-li
 ask-control is the step that was missing. Before the agent moves anything, it has to ask, in plain words:
 
 - **It asks.** A small card says what the agent wants to do and for how long. Deny is the default, Return denies, and no answer in 60 seconds also means no.
-- **You see it.** While the agent drives, your pointer wears a terracotta halo and a pill under the notch counts down.
+- **You see it.** While the agent drives, your pointer wears a terracotta halo, a thin line glows around the screen edge, and a pill at the bottom centre counts down. The notch stays clear, so notch apps you are testing stay visible.
 - **You take it back.** Press Esc or just move your mouse. The agent's command is killed on the spot.
 
 It's one small Swift binary, with no dependencies and nothing running in the background.
@@ -33,8 +33,9 @@ Paste this into your `CLAUDE.md` or `AGENTS.md`:
 
 ```
 Before driving my Mac's mouse or keyboard any way other than your own computer-use
-approval (CGEvent, cliclick, osascript keystrokes), run
-`ask-control "<what and why>" --seconds N -- <command>` and go ahead only on exit 0.
+approval (CGEvent, cliclick, osascript keystrokes), put those steps in a script file
+and run `ask-control "<what and why>" --seconds N -- /abs/path/script args` as its own
+shell call, never wrapped in `sh -c`, and go ahead only on exit 0.
 ```
 
 That's it. The next time your agent wants to click around, you get the card instead of a surprise.
@@ -51,6 +52,20 @@ ask-control "Fill in the signup form" --seconds 20 || exit 1
 [ -e ~/.cache/ask-control/stop ] && exit 3
 ask-control --done   # hand control back early
 ```
+
+### One prompt, not two
+
+Your agent's own tool runner may show its own approval card before ask-control's
+card appears. The Claude desktop app, for one, asks even in bypass mode when a
+command has a `sh -c "…"` script it can't check, with `rm` beside it. The fix is
+the shape of the call:
+
+- Run setup and cleanup (`rm`, `pkill`, copying, opening apps) in a separate call.
+- Put the input-driving steps in a script file, then pass its path as plain argv:
+  `ask-control "…" --seconds 25 -- /tmp/drag-test.sh 462 222`.
+- Never use `-- sh -c "…"` and never use `$(…)` in that call.
+
+Then your click on Allow is the only consent.
 
 | Flag | |
 |---|---|
