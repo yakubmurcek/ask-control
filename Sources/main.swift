@@ -286,7 +286,9 @@ if watchMode {
       let until = Int(Date().timeIntervalSince1970) + seconds
       try? "\(w) \(until) \(reason)".write(toFile: activePath, atomically: true, encoding: .utf8)
       say("allowed for \(seconds) s; stop when \(stopPath) exists or `ask-control --status` fails")
-      exit(0)
+      // Let the card finish leaving while the watcher's overlay comes up.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { exit(0) }
+      return
     }
     guard let pid = spawnCommand(command) else { exit(1) }
     session = Session(seconds: seconds, reason: reason, child: pid)

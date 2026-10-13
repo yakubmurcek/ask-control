@@ -21,6 +21,7 @@ enum Palette {
   static let ember = hex(0xF2A07B)                           // the circling light
   static let surface = isDark ? hex(0x262624) : hex(0xFAF9F5)  // ivory
   static let hairline = isDark ? hex(0x3D3C38) : hex(0xE8E6DC)
+  static let edge = isDark ? hex(0x45443F) : hex(0xDDD9CC)
   static let ink = isDark ? hex(0xF5F4EE) : hex(0x141413)
   static let muted = isDark ? hex(0xA6A39A) : hex(0x73726C)
   static let faint = isDark ? hex(0x7A776F) : hex(0xA9A79F)
@@ -79,16 +80,16 @@ func comet(_ path: CGPath, frame: CGRect, perimeter: CGFloat, length: CGFloat, w
   return box
 }
 
-/// Rounded rect as two halves that both start at bottom centre (where the pill sits) and
-/// meet at top centre, so a draw-on animation rises up both sides symmetrically.
+/// Rounded rect as two halves that both start at top centre (where the pill hangs) and
+/// meet at bottom centre, so a draw-on animation runs down both sides symmetrically.
 func splitRoundedRect(_ r: CGRect, radius: CGFloat) -> [CGPath] {
   [1.0, -1.0].map { (side: CGFloat) in
     let p = CGMutablePath()
     let x0 = side > 0 ? r.maxX : r.minX
-    p.move(to: CGPoint(x: r.midX, y: r.minY))
-    p.addArc(tangent1End: CGPoint(x: x0, y: r.minY), tangent2End: CGPoint(x: x0, y: r.maxY), radius: radius)
-    p.addArc(tangent1End: CGPoint(x: x0, y: r.maxY), tangent2End: CGPoint(x: r.midX, y: r.maxY), radius: radius)
-    p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
+    p.move(to: CGPoint(x: r.midX, y: r.maxY))
+    p.addArc(tangent1End: CGPoint(x: x0, y: r.maxY), tangent2End: CGPoint(x: x0, y: r.minY), radius: radius)
+    p.addArc(tangent1End: CGPoint(x: x0, y: r.minY), tangent2End: CGPoint(x: r.midX, y: r.minY), radius: radius)
+    p.addLine(to: CGPoint(x: r.midX, y: r.minY))
     return p
   }
 }
@@ -290,9 +291,9 @@ func surface(_ frame: NSRect, radius: CGFloat, ink: Bool = false) -> NSView {
   v.layer?.cornerRadius = radius
   v.layer?.cornerCurve = .continuous
   v.layer?.borderWidth = 1
-  v.layer?.borderColor = (ink ? hex(0x2E2D2A) : Palette.hairline).cgColor
+  v.layer?.borderColor = (ink ? hex(0x2E2D2A) : Palette.edge).cgColor
   v.layer?.shadowColor = NSColor.black.cgColor
-  v.layer?.shadowOpacity = isDark || ink ? 0.4 : 0.22
+  v.layer?.shadowOpacity = isDark || ink ? 0.4 : 0.28
   v.layer?.shadowRadius = ink ? 18 : 40
   v.layer?.shadowOffset = CGSize(width: 0, height: ink ? -6 : -12)
   return v
@@ -397,7 +398,7 @@ final class ConsentCard: NSObject {
     root.addSubview(card)
     // The circling light rides the card's own edge.
     let orbit = LayerView(frame: root.bounds)
-    let edge = loopFromTopLeft(cardRect.insetBy(dx: 1, dy: 1), radius: radius - 1)
+    let edge = loopFromTopLeft(cardRect.insetBy(dx: 2, dy: 2), radius: radius - 2)
     orbit.layer!.addSublayer(comet(edge, frame: root.bounds, perimeter: roundedPerimeter(cardRect, radius),
                                    length: 110, width: 2.5, period: 3.6))
     root.addSubview(orbit)
@@ -434,11 +435,13 @@ final class ConsentCard: NSObject {
     guard !decided else { return }
     decided = true
     timer?.invalidate()
-    // Allowed: the card sinks toward where the control pill appears. Denied: it just recedes.
-    fadeAway(root, to: ok ? 0.9 : 0.97, dy: ok ? -40 : 0, duration: ok ? 0.26 : 0.16) { [self] in
+    // Allowed: the card rises toward the notch while the overlay already starts, so there is
+    // no dead air between them. Denied: it just recedes, then we report.
+    fadeAway(root, to: ok ? 0.92 : 0.97, dy: ok ? 40 : 0, duration: ok ? 0.26 : 0.16) { [self] in
       panel.orderOut(nil)
-      onDecision(ok, why)
+      if !ok { onDecision(ok, why) }
     }
+    if ok { onDecision(ok, why) }
   }
 }
 
@@ -555,13 +558,13 @@ final class ControlOverlay {
     let root = LayerView(frame: NSRect(origin: .zero, size: screen.frame.size))
     window.contentView = root
 
-    // Screen edge: a fine terracotta line over a warm inner glow, drawn up from the pill.
+    // Screen edge: a terracotta line over a warm inner glow, drawn out from the pill.
     edge = LayerView(frame: root.bounds)
     let b = root.bounds, r: CGFloat = 12
     let glow = CALayer()
     glow.frame = b
     glow.filters = blur(34)
-    glow.opacity = 0.4
+    glow.opacity = 0.3
     let lineRect = b.insetBy(dx: 1.5, dy: 1.5)
     var drawn: [CAShapeLayer] = []
     for half in splitRoundedRect(b, radius: r) {
@@ -571,15 +574,23 @@ final class ControlOverlay {
     }
     edge.layer!.addSublayer(glow)
     for half in splitRoundedRect(lineRect, radius: r) {
-      let l = stroke(half, b, width: 3, color: Palette.accent)
+      let l = stroke(half, b, width: 4, color: Palette.accent)
       edge.layer!.addSublayer(l)
       drawn.append(l)
     }
     draws = drawn
     if !reduceMotion {
+      // Bright on arrival, then it settles into a slow breath.
+      let settle = CABasicAnimation(keyPath: "opacity")
+      settle.fromValue = 0.5
+      settle.toValue = 0.3
+      settle.duration = 1.2
+      settle.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      glow.add(settle, forKey: "settle")
       let breathe = CABasicAnimation(keyPath: "opacity")
-      breathe.fromValue = 0.4
-      breathe.toValue = 0.26
+      breathe.fromValue = 0.3
+      breathe.toValue = 0.2
+      breathe.beginTime = CACurrentMediaTime() + 1.2
       breathe.duration = 1.8
       breathe.autoreverses = true
       breathe.repeatCount = .infinity
@@ -631,7 +642,8 @@ final class ControlOverlay {
     let h: CGFloat = 42
     let w = row.fittingSize.width + 28
     let vf = screen.visibleFrame
-    let pillRect = NSRect(x: root.bounds.midX - w / 2, y: vf.minY - screen.frame.minY + 64, width: w, height: h)
+    // Hangs under the notch: the one spot no app puts its own controls in.
+    let pillRect = NSRect(x: root.bounds.midX - w / 2, y: vf.maxY - screen.frame.minY - h - 8, width: w, height: h)
     pillBox = LayerView(frame: pillRect.insetBy(dx: -40, dy: -40))
     pill = surface(NSRect(x: 40, y: 40, width: w, height: h), radius: h / 2, ink: true)
     pill.addSubview(row)
@@ -651,14 +663,14 @@ final class ControlOverlay {
         let a = CABasicAnimation(keyPath: "strokeEnd")
         a.fromValue = 0
         a.toValue = 1
-        a.duration = 0.9
+        a.duration = 0.6
         a.beginTime = CACurrentMediaTime() + 0.15
         a.fillMode = .backwards
         a.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.7, 0.2, 1)
         d.add(a, forKey: "draw")
       }
     }
-    springIn(pillBox, from: 0.85, dy: -16)
+    springIn(pillBox, from: 0.8, dy: 26)
     cursor.start()
     let a = CABasicAnimation(keyPath: "strokeEnd")
     a.fromValue = 1
@@ -675,25 +687,29 @@ final class ControlOverlay {
     cursor.stop()
     endGlyph.image = NSImage(systemSymbolName: byUser ? "hand.raised.fill" : "checkmark", accessibilityDescription: nil)
     endGlyph.contentTintColor = byUser ? Palette.accent : hex(0xFAF9F5)
-    let swap = CATransition()
-    swap.type = .fade
-    swap.duration = 0.18
-    caption.layer?.add(swap, forKey: "swap")
-    caption.stringValue = byUser ? "Stopped" : "Back to you"
     ring.removeAllAnimations()
     ring.opacity = 0
     dot.opacity = 0
     esc.isHidden = true
-    let w = row.fittingSize.width + 28
-    var f = pill.frame
-    f.origin.x += (f.width - w) / 2
-    f.size.width = w
-    NSAnimationContext.runAnimationGroup { ctx in
-      ctx.duration = 0.25
-      ctx.allowsImplicitAnimation = true
-      endGlyph.animator().alphaValue = 1
-      pill.animator().frame = f
-    }
+    // Old words out (0.1 s), then new words in (0.15 s) while the pill tightens to fit.
+    NSAnimationContext.runAnimationGroup({ ctx in
+      ctx.duration = 0.1
+      caption.animator().alphaValue = 0
+    }, completionHandler: { [self] in
+      caption.stringValue = byUser ? "Stopped" : "Back to you"
+      let w = row.fittingSize.width + 28
+      var f = pill.frame
+      f.origin.x += (f.width - w) / 2
+      f.size.width = w
+      NSAnimationContext.runAnimationGroup { ctx in
+        ctx.duration = 0.25
+        ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+        ctx.allowsImplicitAnimation = true
+        caption.animator().alphaValue = 1
+        endGlyph.animator().alphaValue = 1
+        pill.animator().frame = f
+      }
+    })
     if byUser && !reduceMotion, let l = pillBox.layer {
       let shake = CAKeyframeAnimation(keyPath: "sublayerTransform.translation.x")
       shake.values = [0, -8, 7, -5, 3, -1, 0]

@@ -4,8 +4,8 @@ A consent prompt for AI agents that want to use your Mac's mouse and keyboard.
 
 Coding agents can move your cursor and type on your Mac with a ten-line script (CGEvent, cliclick, AppleScript), and that skips every approval screen. ask-control puts a native prompt in front of it. The agent says what it wants to do and for how long. Nothing moves until you click Allow, and Esc or a nudge of the mouse takes your Mac back at once.
 
-- **Asks first.** A Liquid Glass card states what the agent wants to do and why. Deny is the default, and it denies on its own after 60 s.
-- **Shows it.** While the agent is in control, a glow runs around the edge of your screen and a small pill counts down.
+- **Asks first.** A card says what the agent wants to do and why. Deny is the default (Return), and it denies on its own after 60 s.
+- **Shows it.** While the agent is in control, your pointer wears a terracotta halo with a short ember trail, a thin line traces the screen edge, and a pill under the notch counts down.
 - **Stops it.** Press Esc, or move or click the real mouse, and the agent's command is killed. The agent's own synthetic events don't trip it.
 
 ## Install
@@ -15,7 +15,7 @@ git clone https://github.com/yakubmurcek/ask-control
 cd ask-control && make install   # builds with swiftc into ~/.local/bin
 ```
 
-You need the Xcode command line tools. It's tested on macOS 27. Liquid Glass needs macOS 26 or later; older versions get a frosted card instead (untested).
+You need the Xcode command line tools. It's tested on macOS 27, light mode; the dark-mode colours are set but haven't been looked at yet.
 
 ## Tell your agent
 
