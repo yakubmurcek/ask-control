@@ -234,8 +234,8 @@ final class ReachMark: LayerView {
 // MARK: - Buttons
 
 final class FlatButton: NSButton {
-  /// The default (Deny) is filled ink with a return glyph; Allow is a terracotta outline,
-  /// so what looks primary is what Return does.
+  /// Deny is the quiet default (light, with a return glyph: Return denies); Allow is the one
+  /// terracotta fill on the card.
   let isDefault: Bool
   var hovering = false { didSet { needsDisplay = true } }
 
@@ -246,12 +246,12 @@ final class FlatButton: NSButton {
     bezelStyle = .regularSquare
     let t = NSMutableAttributedString(string: title, attributes: [
       .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-      .foregroundColor: isDefault ? Palette.surface : Palette.accent,
+      .foregroundColor: isDefault ? Palette.ink : NSColor.white,
     ])
     if isDefault {
       t.append(NSAttributedString(string: "  ↩", attributes: [
         .font: NSFont.systemFont(ofSize: 12, weight: .regular),
-        .foregroundColor: Palette.surface.withAlphaComponent(0.55),
+        .foregroundColor: Palette.faint,
       ]))
     }
     attributedTitle = t
@@ -263,14 +263,14 @@ final class FlatButton: NSButton {
     let r = bounds.insetBy(dx: 0.75, dy: 0.75)
     let path = NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8)
     if isDefault {
-      Palette.ink.withAlphaComponent(isHighlighted ? 0.8 : hovering ? 0.9 : 1).setFill()
+      (isHighlighted ? Palette.hairline : hovering ? Palette.hairline.withAlphaComponent(0.5) : isDark ? hex(0x30302E) : .white).setFill()
       path.fill()
-    } else {
-      Palette.accent.withAlphaComponent(isHighlighted ? 0.16 : hovering ? 0.08 : 0).setFill()
-      path.fill()
-      Palette.accent.setStroke()
-      path.lineWidth = 1.25
+      Palette.edge.setStroke()
+      path.lineWidth = 1
       path.stroke()
+    } else {
+      (isHighlighted || hovering ? Palette.accentDeep : Palette.accent).setFill()
+      path.fill()
     }
     super.draw(dirty)
   }
@@ -599,10 +599,10 @@ final class ControlOverlay {
     }
     root.addSubview(edge)
 
-    // Pill (ink, reads on any background): [time ring + dot]  Claude has control  [esc]
+    // Pill (ivory, hairline edge, soft shadow): [time ring + dot]  Claude has control  [esc]
     let ringBox = LayerView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
     fixedSize(ringBox, 20, 20)
-    let track = stroke(CGPath(ellipseIn: ringBox.bounds.insetBy(dx: 1, dy: 1), transform: nil), ringBox.bounds, width: 1.5, color: hex(0x3D3C38))
+    let track = stroke(CGPath(ellipseIn: ringBox.bounds.insetBy(dx: 1, dy: 1), transform: nil), ringBox.bounds, width: 1.5, color: Palette.hairline)
     ring.frame = ringBox.bounds
     ring.path = CGPath(ellipseIn: ringBox.bounds.insetBy(dx: 1, dy: 1), transform: nil)
     ring.lineWidth = 1.5
@@ -633,8 +633,8 @@ final class ControlOverlay {
     endGlyph.alphaValue = 0
     ringBox.addSubview(endGlyph)
 
-    caption = text("\(agentName) has control", 13, .medium, hex(0xFAF9F5))
-    esc = keycap("esc", onInk: true)
+    caption = text("\(agentName) has control", 13, .medium, Palette.ink)
+    esc = keycap("esc")
     row = NSStackView(views: [ringBox, caption, esc])
     row.spacing = 10
     row.alignment = .centerY
@@ -645,7 +645,7 @@ final class ControlOverlay {
     // Hangs under the notch: the one spot no app puts its own controls in.
     let pillRect = NSRect(x: root.bounds.midX - w / 2, y: vf.maxY - screen.frame.minY - h - 8, width: w, height: h)
     pillBox = LayerView(frame: pillRect.insetBy(dx: -40, dy: -40))
-    pill = surface(NSRect(x: 40, y: 40, width: w, height: h), radius: h / 2, ink: true)
+    pill = surface(NSRect(x: 40, y: 40, width: w, height: h), radius: h / 2)
     pill.addSubview(row)
     NSLayoutConstraint.activate([
       row.centerXAnchor.constraint(equalTo: pill.centerXAnchor),
@@ -686,7 +686,7 @@ final class ControlOverlay {
   func finish(byUser: Bool, then: @escaping () -> Void) {
     cursor.stop()
     endGlyph.image = NSImage(systemSymbolName: byUser ? "hand.raised.fill" : "checkmark", accessibilityDescription: nil)
-    endGlyph.contentTintColor = byUser ? Palette.accent : hex(0xFAF9F5)
+    endGlyph.contentTintColor = byUser ? Palette.accent : Palette.ink
     ring.removeAllAnimations()
     ring.opacity = 0
     dot.opacity = 0
