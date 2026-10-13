@@ -1,5 +1,5 @@
 PREFIX ?= $(HOME)/.local
-SOURCES := Sources/main.swift Sources/UI.swift
+SOURCES := Sources/main.swift Sources/UI.swift Sources/Demo.swift
 
 ask-control: $(SOURCES)
 	swiftc -O -o $@ $(SOURCES)

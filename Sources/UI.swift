@@ -1,45 +1,36 @@
-// ask-control visuals: a Liquid Glass consent card with a living AI-glow rim, and while
-// control runs, a glow that draws itself around the screen edge plus a small glass pill.
-// Pure Core Animation, no assets. Honours Reduce Motion (no spin, no springs).
+// ask-control visuals, in Claude's palette: warm ivory, one terracotta accent, a serif title.
+// The card's cursor mark ripples while it waits; once allowed, the real pointer wears a
+// terracotta halo with an ember trail, a thin line traces the screen edge, and a pill hangs
+// under the notch. Pure Core Animation, no assets.
+// Honours Reduce Motion (no springs, ripples or draw-on) and light/dark appearance.
 import AppKit
 import QuartzCore
 import CoreImage
 
 let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+let isDark = ProcessInfo.processInfo.environment["ASK_CONTROL_APPEARANCE"].map { $0 == "dark" }  // for testing
+  ?? (UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark")
 
-/// The glow palette, looped so a conic gradient has no seam.
-let palette: [NSColor] = [
-  NSColor(srgbRed: 1.00, green: 0.54, blue: 0.30, alpha: 1),  // orange
-  NSColor(srgbRed: 1.00, green: 0.31, blue: 0.55, alpha: 1),  // pink
-  NSColor(srgbRed: 0.62, green: 0.42, blue: 1.00, alpha: 1),  // violet
-  NSColor(srgbRed: 0.31, green: 0.55, blue: 1.00, alpha: 1),  // blue
-  NSColor(srgbRed: 0.85, green: 0.47, blue: 0.34, alpha: 1),  // claude coral
-  NSColor(srgbRed: 1.00, green: 0.54, blue: 0.30, alpha: 1),
-]
+func hex(_ v: UInt32, _ a: CGFloat = 1) -> NSColor {
+  NSColor(srgbRed: CGFloat(v >> 16 & 0xff) / 255, green: CGFloat(v >> 8 & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: a)
+}
+
+/// Claude's colours, resolved once for the current appearance.
+enum Palette {
+  static let accent = hex(0xD97757)                          // terracotta
+  static let accentDeep = hex(0xC6613F)                      // pressed / hover
+  static let ember = hex(0xF2A07B)                           // the cursor's trail
+  static let surface = isDark ? hex(0x262624) : hex(0xFAF9F5)  // ivory
+  static let hairline = isDark ? hex(0x3D3C38) : hex(0xE8E6DC)
+  static let edge = isDark ? hex(0x45443F) : hex(0xDDD9CC)
+  static let ink = isDark ? hex(0xF5F4EE) : hex(0x141413)
+  static let muted = isDark ? hex(0xA6A39A) : hex(0x73726C)
+  static let faint = isDark ? hex(0x7A776F) : hex(0xA9A79F)
+}
 
 // MARK: - Layer helpers
 
-func conic(_ side: CGFloat, spin: CFTimeInterval) -> CAGradientLayer {
-  let g = CAGradientLayer()
-  g.type = .conic
-  g.startPoint = CGPoint(x: 0.5, y: 0.5)
-  g.endPoint = CGPoint(x: 0.5, y: 0)
-  g.colors = palette.map(\.cgColor)
-  g.bounds = CGRect(x: 0, y: 0, width: side, height: side)
-  if !reduceMotion {
-    let a = CABasicAnimation(keyPath: "transform.rotation.z")
-    a.fromValue = 0
-    a.toValue = -2 * Double.pi
-    a.duration = spin
-    a.repeatCount = .infinity
-    g.add(a, forKey: "spin")
-  }
-  return g
-}
-
-func blur(_ r: CGFloat) -> [Any] {
-  r > 0 ? [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: r])!] : []
-}
+func blur(_ r: CGFloat) -> [Any] { [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: r])!] }
 
 /// A layer-backed view whose layers may carry Core Image filters.
 class LayerView: NSView {
@@ -51,75 +42,20 @@ class LayerView: NSView {
   required init?(coder: NSCoder) { fatalError() }
 }
 
-/// A gradient stroke along `paths`, in strands of (line width, blur radius, opacity):
-/// a crisp line plus soft halos is what reads as "glow".
-final class GlowStroke: LayerView {
-  var masks: [CAShapeLayer] = []
-  let host = CALayer()
-
-  init(frame: NSRect, paths: [CGPath], strands: [(CGFloat, CGFloat, Float)], spin: CFTimeInterval) {
-    super.init(frame: frame)
-    host.frame = bounds
-    layer!.addSublayer(host)
-    let side = hypot(bounds.width, bounds.height) * 1.05
-    for (width, radius, opacity) in strands {
-      let strand = CALayer()
-      strand.frame = bounds
-      strand.opacity = opacity
-      strand.filters = blur(radius)
-      let inner = CALayer()
-      inner.frame = bounds
-      let g = conic(side, spin: spin)
-      g.position = CGPoint(x: bounds.midX, y: bounds.midY)
-      inner.addSublayer(g)
-      let mask = CALayer()
-      mask.frame = bounds
-      for p in paths {
-        let s = CAShapeLayer()
-        s.frame = bounds
-        s.path = p
-        s.lineWidth = width
-        s.lineCap = .round
-        s.fillColor = nil
-        s.strokeColor = NSColor.white.cgColor
-        mask.addSublayer(s)
-        masks.append(s)
-      }
-      inner.mask = mask
-      strand.addSublayer(inner)
-      host.addSublayer(strand)
-    }
-  }
-  required init?(coder: NSCoder) { fatalError() }
-
-  /// Draw the stroke on from its start, like ink.
-  func drawOn(_ duration: CFTimeInterval) {
-    guard !reduceMotion else { return }
-    for m in masks {
-      let a = CABasicAnimation(keyPath: "strokeEnd")
-      a.fromValue = 0
-      a.toValue = 1
-      a.duration = duration
-      a.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
-      m.add(a, forKey: "draw")
-    }
-  }
-
-  func breathe(_ low: Float, period: CFTimeInterval) {
-    guard !reduceMotion else { return }
-    let a = CABasicAnimation(keyPath: "opacity")
-    a.fromValue = 1
-    a.toValue = low
-    a.duration = period
-    a.autoreverses = true
-    a.repeatCount = .infinity
-    a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-    host.add(a, forKey: "breathe")
-  }
+func stroke(_ path: CGPath, _ frame: CGRect, width: CGFloat, color: NSColor) -> CAShapeLayer {
+  let s = CAShapeLayer()
+  s.frame = frame
+  s.path = path
+  s.lineWidth = width
+  s.lineCap = .round
+  s.lineJoin = .round
+  s.fillColor = nil
+  s.strokeColor = color.cgColor
+  return s
 }
 
-/// Rounded rect as two halves that both start at top centre and meet at bottom centre,
-/// so a draw-on animation spreads out symmetrically.
+/// Rounded rect as two halves that both start at top centre (where the pill hangs) and
+/// meet at bottom centre, so a draw-on animation runs down both sides symmetrically.
 func splitRoundedRect(_ r: CGRect, radius: CGFloat) -> [CGPath] {
   [1.0, -1.0].map { (side: CGFloat) in
     let p = CGMutablePath()
@@ -132,47 +68,45 @@ func splitRoundedRect(_ r: CGRect, radius: CGFloat) -> [CGPath] {
   }
 }
 
-/// Spring the whole view in from slightly small and low (scale about its centre).
-func springIn(_ v: NSView, from scale: CGFloat = 0.86, dy: CGFloat = -14, delay: CFTimeInterval = 0) {
+/// Spring the view in from slightly small and low (scale about its centre).
+func springIn(_ v: NSView, from scale: CGFloat = 0.96, dy: CGFloat = -10, delay: CFTimeInterval = 0) {
   guard let l = v.layer else { return }
-  let c = CGPoint(x: v.bounds.midX, y: v.bounds.midY)
-  var t = CATransform3DMakeTranslation(c.x, c.y + dy, 0)
-  t = CATransform3DScale(t, scale, scale, 1)
-  t = CATransform3DTranslate(t, -c.x, -c.y, 0)
   let fade = CABasicAnimation(keyPath: "opacity")
   fade.fromValue = 0
   fade.toValue = 1
-  fade.duration = 0.22
+  fade.duration = 0.2
   fade.beginTime = CACurrentMediaTime() + delay
   fade.fillMode = .backwards
   l.add(fade, forKey: "in-fade")
   guard !reduceMotion else { return }
   let s = CASpringAnimation(keyPath: "sublayerTransform")
-  s.fromValue = t
+  s.fromValue = scaled(v, scale, dy)
   s.toValue = CATransform3DIdentity
-  s.mass = 1
-  s.stiffness = 240
-  s.damping = 19
+  s.stiffness = 300
+  s.damping = 24
   s.duration = s.settlingDuration
   s.beginTime = CACurrentMediaTime() + delay
   s.fillMode = .backwards
   l.add(s, forKey: "in-spring")
 }
 
-/// Shrink, drift and fade away; `then` runs when it is gone.
-func fadeAway(_ v: NSView, to scale: CGFloat = 0.92, dy: CGFloat = 0, duration: CFTimeInterval = 0.22, then: @escaping () -> Void) {
-  guard let l = v.layer else { then(); return }
+func scaled(_ v: NSView, _ scale: CGFloat, _ dy: CGFloat) -> CATransform3D {
   let c = CGPoint(x: v.bounds.midX, y: v.bounds.midY)
   var t = CATransform3DMakeTranslation(c.x, c.y + dy, 0)
   t = CATransform3DScale(t, scale, scale, 1)
-  t = CATransform3DTranslate(t, -c.x, -c.y, 0)
+  return CATransform3DTranslate(t, -c.x, -c.y, 0)
+}
+
+/// Shrink, drift and fade away; `then` runs when it is gone.
+func fadeAway(_ v: NSView, to scale: CGFloat = 0.97, dy: CGFloat = 0, duration: CFTimeInterval = 0.18, then: @escaping () -> Void) {
+  guard let l = v.layer else { then(); return }
   CATransaction.begin()
   CATransaction.setCompletionBlock(then)
-  let g = CAAnimationGroup()
   let s = CABasicAnimation(keyPath: "sublayerTransform")
-  s.toValue = reduceMotion ? CATransform3DIdentity : t
+  s.toValue = reduceMotion ? CATransform3DIdentity : scaled(v, scale, dy)
   let o = CABasicAnimation(keyPath: "opacity")
   o.toValue = 0
+  let g = CAAnimationGroup()
   g.animations = [s, o]
   g.duration = duration
   g.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
@@ -182,133 +116,123 @@ func fadeAway(_ v: NSView, to scale: CGFloat = 0.92, dy: CGFloat = 0, duration: 
   CATransaction.commit()
 }
 
-func glass(_ frame: NSRect, radius: CGFloat) -> NSView {
-  if #available(macOS 26.0, *) {
-    let g = NSGlassEffectView(frame: frame)
-    g.cornerRadius = radius
-    // Clear glass over busy text is unreadable; tint it toward the window background.
-    g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.72)
-    return g
-  }
-  let v = NSVisualEffectView(frame: frame)
-  v.material = .hudWindow
-  v.blendingMode = .behindWindow
-  v.state = .active
-  v.wantsLayer = true
-  v.layer?.cornerRadius = radius
-  v.layer?.cornerCurve = .continuous
-  v.layer?.masksToBounds = true
-  return v
-}
-
-func setGlassContent(_ g: NSView, _ content: NSView) {
-  if #available(macOS 26.0, *), let g = g as? NSGlassEffectView {
-    g.contentView = content
-  } else {
-    content.frame = g.bounds
-    g.addSubview(content)
-  }
-}
-
-func text(_ s: String, _ size: CGFloat, _ weight: NSFont.Weight, _ color: NSColor = .labelColor) -> NSTextField {
+func text(_ s: String, _ size: CGFloat, _ weight: NSFont.Weight, _ color: NSColor, serif: Bool = false) -> NSTextField {
   let l = NSTextField(labelWithString: s)
-  l.font = .systemFont(ofSize: size, weight: weight)
+  var font = NSFont.systemFont(ofSize: size, weight: weight)
+  if serif, let d = font.fontDescriptor.withDesign(.serif), let f = NSFont(descriptor: d, size: size) { font = f }
+  l.font = font
   l.textColor = color
-  l.alignment = .center
   l.lineBreakMode = .byTruncatingTail
   return l
 }
 
-// MARK: - Orb
+func fixedSize(_ v: NSView, _ w: CGFloat, _ h: CGFloat) {
+  v.translatesAutoresizingMaskIntoConstraints = false
+  v.widthAnchor.constraint(equalToConstant: w).isActive = true
+  v.heightAnchor.constraint(equalToConstant: h).isActive = true
+}
 
-/// The "AI is here" mark: a slowly turning gradient sphere with a soft halo and a glyph.
-final class Orb: LayerView {
-  let glyph = NSImageView()
+/// Small rounded key, like the one printed on the keyboard.
+func keycap(_ label: String, onInk: Bool = false) -> NSView {
+  let k = NSView()
+  k.wantsLayer = true
+  k.layer?.cornerRadius = 5
+  k.layer?.cornerCurve = .continuous
+  k.layer?.borderWidth = 1
+  k.layer?.borderColor = (onInk ? hex(0x45443F) : Palette.hairline).cgColor
+  k.layer?.backgroundColor = (onInk ? hex(0x262624) : isDark ? hex(0x30302E) : NSColor.white).cgColor
+  let t = text(label, 10.5, .medium, onInk ? hex(0xB0AEA5) : Palette.muted)
+  t.translatesAutoresizingMaskIntoConstraints = false
+  k.addSubview(t)
+  NSLayoutConstraint.activate([t.centerXAnchor.constraint(equalTo: k.centerXAnchor), t.centerYAnchor.constraint(equalTo: k.centerYAnchor)])
+  fixedSize(k, 30, 20)
+  return k
+}
 
-  init(diameter d: CGFloat, symbol: String?, halo: Bool = true) {
-    let pad = halo ? d * 0.4 : 0
-    super.init(frame: NSRect(x: 0, y: 0, width: d + pad * 2, height: d + pad * 2))
-    let c = CGPoint(x: bounds.midX, y: bounds.midY)
-    if halo {
-      let h = conic(d * 1.1, spin: 7)
-      h.cornerRadius = d * 0.55
-      h.masksToBounds = true
-      h.position = c
-      let hold = CALayer()
-      hold.frame = bounds
-      hold.filters = blur(d * 0.28)
-      hold.opacity = 0.75
-      hold.addSublayer(h)
-      layer!.addSublayer(hold)
+// MARK: - Mark
+
+/// A cursor with rings rippling out of it: something is reaching for your pointer.
+final class ReachMark: LayerView {
+  init(size d: CGFloat) {
+    super.init(frame: NSRect(x: 0, y: 0, width: d, height: d))
+    let c = CGPoint(x: d / 2, y: d / 2)
+    let disc = CALayer()
+    disc.bounds = CGRect(x: 0, y: 0, width: d * 0.62, height: d * 0.62)
+    disc.position = c
+    disc.cornerRadius = d * 0.31
+    disc.backgroundColor = Palette.accent.cgColor
+    layer!.addSublayer(disc)
+    for i in 0..<3 where !reduceMotion {
+      let ring = CAShapeLayer()
+      ring.frame = bounds
+      ring.path = CGPath(ellipseIn: CGRect(x: c.x - d * 0.31, y: c.y - d * 0.31, width: d * 0.62, height: d * 0.62), transform: nil)
+      ring.fillColor = nil
+      ring.strokeColor = Palette.accent.cgColor
+      ring.lineWidth = 1.2
+      ring.opacity = 0
+      let grow = CABasicAnimation(keyPath: "transform.scale")
+      grow.fromValue = 1
+      grow.toValue = 1.6
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = 0.7
+      fade.toValue = 0
+      let g = CAAnimationGroup()
+      g.animations = [grow, fade]
+      g.duration = 2.4
+      g.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.6, 0.3, 1)
+      g.repeatCount = .infinity
+      g.beginTime = CACurrentMediaTime() + Double(i) * 0.8
+      ring.add(g, forKey: "ripple")
+      layer!.insertSublayer(ring, below: disc)
     }
-    let core = CALayer()
-    core.bounds = CGRect(x: 0, y: 0, width: d, height: d)
-    core.position = c
-    core.cornerRadius = d / 2
-    core.masksToBounds = true
-    let g = conic(d * 1.5, spin: 5)
-    g.position = CGPoint(x: d / 2, y: d / 2)
-    core.addSublayer(g)
-    let shine = CAGradientLayer()
-    shine.type = .radial
-    shine.frame = core.bounds
-    shine.colors = [NSColor.white.withAlphaComponent(0.55).cgColor, NSColor.white.withAlphaComponent(0).cgColor]
-    shine.startPoint = CGPoint(x: 0.32, y: 0.72)
-    shine.endPoint = CGPoint(x: 1.0, y: 0.0)
-    core.addSublayer(shine)
-    layer!.addSublayer(core)
-    if !reduceMotion {
-      let b = CABasicAnimation(keyPath: "transform.scale")
-      b.fromValue = 0.94
-      b.toValue = 1.04
-      b.duration = 1.6
-      b.autoreverses = true
-      b.repeatCount = .infinity
-      b.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-      core.add(b, forKey: "breathe")
-    }
-    if let symbol {
-      glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-      glyph.symbolConfiguration = .init(pointSize: d * 0.42, weight: .bold)
-      glyph.contentTintColor = .white
-      glyph.frame = NSRect(x: pad, y: pad, width: d, height: d)
-      addSubview(glyph)
-    }
+    let arrow = NSImageView(image: NSImage(systemSymbolName: "cursorarrow", accessibilityDescription: nil)!)
+    arrow.symbolConfiguration = .init(pointSize: d * 0.3, weight: .semibold)
+    arrow.contentTintColor = .white
+    arrow.frame = bounds.offsetBy(dx: 1, dy: 0)
+    addSubview(arrow)
   }
   required init?(coder: NSCoder) { fatalError() }
 }
 
 // MARK: - Buttons
 
-final class CapsuleButton: NSButton {
-  let primary: Bool
+final class FlatButton: NSButton {
+  /// Deny is the quiet default (light, with a return glyph: Return denies); Allow is the one
+  /// terracotta fill on the card.
+  let isDefault: Bool
   var hovering = false { didSet { needsDisplay = true } }
 
-  init(_ title: String, primary: Bool) {
-    self.primary = primary
-    super.init(frame: NSRect(x: 0, y: 0, width: 128, height: 36))
+  init(_ title: String, isDefault: Bool) {
+    self.isDefault = isDefault
+    super.init(frame: .zero)
     isBordered = false
     bezelStyle = .regularSquare
-    attributedTitle = NSAttributedString(string: title, attributes: [
-      .font: NSFont.systemFont(ofSize: 13.5, weight: .semibold),
-      .foregroundColor: primary ? NSColor.white : NSColor.labelColor,
+    let t = NSMutableAttributedString(string: title, attributes: [
+      .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+      .foregroundColor: isDefault ? Palette.ink : NSColor.white,
     ])
-    translatesAutoresizingMaskIntoConstraints = false
-    widthAnchor.constraint(equalToConstant: 128).isActive = true
-    heightAnchor.constraint(equalToConstant: 36).isActive = true
+    if isDefault {
+      t.append(NSAttributedString(string: "  ↩", attributes: [
+        .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+        .foregroundColor: Palette.faint,
+      ]))
+    }
+    attributedTitle = t
+    fixedSize(self, isDefault ? 88 : 76, 30)
   }
   required init?(coder: NSCoder) { fatalError() }
 
   override func draw(_ dirty: NSRect) {
-    let path = NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2)
-    if primary {
-      NSGradient(colors: Array(palette[0...2]))!.draw(in: path, angle: 0)
-      if hovering || isHighlighted {
-        NSColor.white.withAlphaComponent(isHighlighted ? 0.25 : 0.12).setFill()
-        path.fill()
-      }
+    let r = bounds.insetBy(dx: 0.75, dy: 0.75)
+    let path = NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8)
+    if isDefault {
+      (isHighlighted ? Palette.hairline : hovering ? Palette.hairline.withAlphaComponent(0.5) : isDark ? hex(0x30302E) : .white).setFill()
+      path.fill()
+      Palette.edge.setStroke()
+      path.lineWidth = 1
+      path.stroke()
     } else {
-      NSColor.labelColor.withAlphaComponent(isHighlighted ? 0.2 : hovering ? 0.14 : 0.09).setFill()
+      (isHighlighted || hovering ? Palette.accentDeep : Palette.accent).setFill()
       path.fill()
     }
     super.draw(dirty)
@@ -322,14 +246,30 @@ final class CapsuleButton: NSButton {
   override func mouseExited(with event: NSEvent) { hovering = false }
 }
 
+/// Solid ivory surface with a hairline edge and a soft shadow.
+func surface(_ frame: NSRect, radius: CGFloat, ink: Bool = false) -> NSView {
+  let v = NSView(frame: frame)
+  v.wantsLayer = true
+  v.layer?.backgroundColor = (ink ? hex(0x141413) : Palette.surface).cgColor
+  v.layer?.cornerRadius = radius
+  v.layer?.cornerCurve = .continuous
+  v.layer?.borderWidth = 1
+  v.layer?.borderColor = (ink ? hex(0x2E2D2A) : Palette.edge).cgColor
+  v.layer?.shadowColor = NSColor.black.cgColor
+  v.layer?.shadowOpacity = isDark || ink ? 0.4 : 0.28
+  v.layer?.shadowRadius = ink ? 18 : 40
+  v.layer?.shadowOffset = CGSize(width: 0, height: ink ? -6 : -12)
+  return v
+}
+
 // MARK: - Consent card
 
 final class ConsentCard: NSObject {
   let panel: KeyPanel
   let root: LayerView
-  let allow: CapsuleButton
-  var deny: CapsuleButton!
-  let countdown = CAShapeLayer()
+  let allow = FlatButton("Allow", isDefault: false)
+  let deny = FlatButton("Deny", isDefault: true)
+  let drain = CAShapeLayer()
   let timeout: Int
   var decided = false
   var timer: Timer?
@@ -338,8 +278,7 @@ final class ConsentCard: NSObject {
   init(reason: String, seconds: Int, timeout: Int, onDecision: @escaping (Bool, String) -> Void) {
     self.timeout = timeout
     self.onDecision = onDecision
-    let width: CGFloat = 340, margin: CGFloat = 70, radius: CGFloat = 30
-    allow = CapsuleButton("Allow", primary: true)
+    let width: CGFloat = 400, margin: CGFloat = 48, radius: CGFloat = 18, inset: CGFloat = 26
     root = LayerView(frame: .zero)
     panel = KeyPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     super.init()
@@ -347,60 +286,53 @@ final class ConsentCard: NSObject {
     allow.target = self
     allow.action = #selector(allowClicked)
     allow.isEnabled = false  // armed after a beat, so a click already in flight can't land on it
-    allow.alphaValue = 0.5
-    deny = CapsuleButton("Deny", primary: false)
+    allow.alphaValue = 0.45
     deny.target = self
     deny.action = #selector(denyClicked)
     deny.keyEquivalent = "\r"  // Return = Deny: a stray keypress can never allow
 
-    let orb = Orb(diameter: 46, symbol: "cursorarrow.motionlines")
-    orb.translatesAutoresizingMaskIntoConstraints = false
-    orb.widthAnchor.constraint(equalToConstant: orb.frame.width).isActive = true
-    orb.heightAnchor.constraint(equalToConstant: orb.frame.height).isActive = true
-    let title = text("\(agentName) wants control", 17, .semibold)
-    let why = text(reason, 13, .regular, .secondaryLabelColor)
-    why.maximumNumberOfLines = 2
-    why.cell?.wraps = true
-    why.preferredMaxLayoutWidth = width - 56
-    let meta = text("\(seconds < 120 ? "\(seconds) s" : "\(seconds / 60) min")  ·  esc to stop", 11.5, .medium, .tertiaryLabelColor)
-    let buttons = NSStackView(views: [deny, allow])
-    buttons.spacing = 10
+    let mark = ReachMark(size: 46)
+    fixedSize(mark, 46, 46)
+    let title = text("\(agentName) wants control", 21, .regular, Palette.ink, serif: true)
+    let why = NSTextField(wrappingLabelWithString: reason)
+    why.font = .systemFont(ofSize: 13)
+    why.textColor = Palette.muted
+    why.maximumNumberOfLines = 3
+    why.preferredMaxLayoutWidth = width - inset * 2
 
-    let line = LayerView(frame: NSRect(x: 0, y: 0, width: width - 64, height: 3))
-    line.translatesAutoresizingMaskIntoConstraints = false
-    line.widthAnchor.constraint(equalToConstant: width - 64).isActive = true
-    line.heightAnchor.constraint(equalToConstant: 3).isActive = true
-    let track = CALayer()
-    track.frame = line.bounds
-    track.cornerRadius = 1.5
-    track.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
-    let fill = CAGradientLayer()
-    fill.frame = line.bounds
-    fill.startPoint = CGPoint(x: 0, y: 0.5)
-    fill.endPoint = CGPoint(x: 1, y: 0.5)
-    fill.colors = palette[0...3].map(\.cgColor)
+    // A hairline that drains toward the auto-deny.
+    let lineW = width - inset * 2
+    let line = LayerView(frame: NSRect(x: 0, y: 0, width: lineW, height: 2))
+    fixedSize(line, lineW, 2)
+    line.layer!.backgroundColor = Palette.hairline.cgColor
+    line.layer!.cornerRadius = 1
     let p = CGMutablePath()
-    p.move(to: CGPoint(x: 1.5, y: 1.5))
-    p.addLine(to: CGPoint(x: line.bounds.width - 1.5, y: 1.5))
-    countdown.path = p
-    countdown.lineWidth = 3
-    countdown.lineCap = .round
-    countdown.strokeColor = NSColor.white.cgColor
-    countdown.fillColor = nil
-    countdown.frame = line.bounds
-    fill.mask = countdown
-    line.layer!.addSublayer(track)
-    line.layer!.addSublayer(fill)
+    p.move(to: CGPoint(x: 0, y: 1))
+    p.addLine(to: CGPoint(x: lineW, y: 1))
+    drain.path = p
+    drain.frame = line.bounds
+    drain.lineWidth = 2
+    drain.strokeColor = Palette.accent.cgColor
+    line.layer!.addSublayer(drain)
 
-    let stack = NSStackView(views: [orb, title, why, meta, buttons, line])
+    let meta = NSStackView(views: [text(seconds < 120 ? "for \(seconds) s" : "for \(seconds / 60) min", 12, .regular, Palette.faint),
+                                   text("·", 12, .regular, Palette.faint), keycap("esc"), text("stops it", 12, .regular, Palette.faint)])
+    meta.spacing = 5
+    let spacer = NSView()
+    spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+    let footer = NSStackView(views: [meta, spacer, deny, allow])
+    footer.spacing = 8
+    footer.translatesAutoresizingMaskIntoConstraints = false
+    footer.widthAnchor.constraint(equalToConstant: lineW).isActive = true
+
+    let stack = NSStackView(views: [mark, title, why, line, footer])
     stack.orientation = .vertical
-    stack.alignment = .centerX
-    stack.spacing = 8
-    stack.setCustomSpacing(-2, after: orb)
-    stack.setCustomSpacing(4, after: title)
-    stack.setCustomSpacing(18, after: meta)
-    stack.setCustomSpacing(18, after: buttons)
-    stack.edgeInsets = NSEdgeInsets(top: 4, left: 28, bottom: 16, right: 28)
+    stack.alignment = .leading
+    stack.spacing = 6
+    stack.setCustomSpacing(14, after: mark)
+    stack.setCustomSpacing(18, after: why)
+    stack.setCustomSpacing(14, after: line)
+    stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: 20, right: inset)
     stack.translatesAutoresizingMaskIntoConstraints = false
     stack.widthAnchor.constraint(equalToConstant: width).isActive = true
     let height = stack.fittingSize.height
@@ -419,12 +351,13 @@ final class ConsentCard: NSObject {
 
     root.frame = NSRect(origin: .zero, size: size)
     let cardRect = NSRect(x: margin, y: margin, width: width, height: height)
-    let rim = GlowStroke(frame: root.bounds, paths: [CGPath(roundedRect: cardRect, cornerWidth: radius, cornerHeight: radius, transform: nil)],
-                         strands: [(3, 0, 1), (12, 10, 0.9), (34, 26, 0.65)], spin: 4)
-    rim.breathe(0.7, period: 1.8)
-    root.addSubview(rim)
-    let card = glass(cardRect, radius: radius)
-    setGlassContent(card, stack)
+    let card = surface(cardRect, radius: radius)
+    card.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+      stack.topAnchor.constraint(equalTo: card.topAnchor),
+      stack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+    ])
     root.addSubview(card)
     panel.contentView = root
   }
@@ -433,19 +366,19 @@ final class ConsentCard: NSObject {
     NSApp.activate(ignoringOtherApps: true)
     panel.makeKeyAndOrderFront(nil)
     springIn(root)
-    let s = NSSound(named: "Glass")
-    s?.volume = 0.35
+    let s = NSSound(named: "Tink")
+    s?.volume = 0.4
     s?.play()
-    let drain = CABasicAnimation(keyPath: "strokeEnd")
-    drain.fromValue = 1
-    drain.toValue = 0
-    drain.duration = CFTimeInterval(timeout)
-    drain.fillMode = .forwards
-    drain.isRemovedOnCompletion = false
-    countdown.add(drain, forKey: "drain")
+    let a = CABasicAnimation(keyPath: "strokeEnd")
+    a.fromValue = 1
+    a.toValue = 0
+    a.duration = CFTimeInterval(timeout)
+    a.fillMode = .forwards
+    a.isRemovedOnCompletion = false
+    drain.add(a, forKey: "drain")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
       self?.allow.isEnabled = true
-      NSAnimationContext.runAnimationGroup { $0.duration = 0.25; self?.allow.animator().alphaValue = 1 }
+      NSAnimationContext.runAnimationGroup { $0.duration = 0.2; self?.allow.animator().alphaValue = 1 }
     }
     timer = Timer.scheduledTimer(withTimeInterval: TimeInterval(timeout), repeats: false) { [weak self] _ in
       self?.decide(false, "no answer in \(self?.timeout ?? 0) s")
@@ -459,26 +392,117 @@ final class ConsentCard: NSObject {
     guard !decided else { return }
     decided = true
     timer?.invalidate()
-    // Allowed: the card sinks toward where the control pill appears. Denied: it just recedes.
-    fadeAway(root, to: ok ? 0.7 : 0.92, dy: ok ? -60 : 0, duration: ok ? 0.32 : 0.2) { [self] in
+    // Allowed: the card rises toward the notch while the overlay already starts, so there is
+    // no dead air between them. Denied: it just recedes, then we report.
+    fadeAway(root, to: ok ? 0.92 : 0.97, dy: ok ? 40 : 0, duration: ok ? 0.26 : 0.16) { [self] in
       panel.orderOut(nil)
-      onDecision(ok, why)
+      if !ok { onDecision(ok, why) }
     }
+    if ok { onDecision(ok, why) }
   }
 }
 
 // MARK: - Control overlay
 
+/// Claude's hold on the real pointer: a terracotta halo around the cursor and a short ember
+/// trail behind it. It is the one thing that still reads in a phone-sized clip.
+final class CursorHalo {
+  let layer = CALayer()
+  let halo = CALayer()
+  var trail: [CALayer] = []
+  var history: [CGPoint] = []
+  let screen: NSScreen
+  var timer: Timer?
+  /// Where the pointer is, in global screen coordinates; the demo supplies a scripted one.
+  var source: () -> CGPoint = { NSEvent.mouseLocation }
+
+  init(screen: NSScreen, in host: CALayer) {
+    self.screen = screen
+    layer.frame = host.bounds
+    for i in 0..<14 {
+      let d = CALayer()
+      let size = 9 - CGFloat(i) * 0.5
+      d.bounds = CGRect(x: 0, y: 0, width: size, height: size)
+      d.cornerRadius = size / 2
+      d.backgroundColor = Palette.ember.cgColor
+      d.opacity = 0.75 * (1 - Float(i) / 14)
+      layer.addSublayer(d)
+      trail.append(d)
+    }
+    let glow = CALayer()
+    glow.bounds = CGRect(x: 0, y: 0, width: 46, height: 46)
+    glow.position = CGPoint(x: 23, y: 23)
+    glow.cornerRadius = 23
+    glow.backgroundColor = Palette.accent.cgColor
+    glow.opacity = 0.28
+    glow.filters = blur(9)
+    let ring = CAShapeLayer()
+    ring.frame = CGRect(x: 0, y: 0, width: 46, height: 46)
+    ring.path = CGPath(ellipseIn: CGRect(x: 9, y: 9, width: 28, height: 28), transform: nil)
+    ring.fillColor = nil
+    ring.strokeColor = Palette.accent.cgColor
+    ring.lineWidth = 2
+    halo.bounds = CGRect(x: 0, y: 0, width: 46, height: 46)
+    halo.addSublayer(glow)
+    halo.addSublayer(ring)
+    if !reduceMotion {
+      let b = CABasicAnimation(keyPath: "transform.scale")
+      b.fromValue = 0.92
+      b.toValue = 1.08
+      b.duration = 0.9
+      b.autoreverses = true
+      b.repeatCount = .infinity
+      b.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      ring.add(b, forKey: "breathe")
+    }
+    layer.addSublayer(halo)
+    layer.opacity = 0
+    host.addSublayer(layer)
+  }
+
+  func start() {
+    let a = CABasicAnimation(keyPath: "opacity")
+    a.fromValue = 0
+    a.toValue = 1
+    a.duration = 0.3
+    layer.opacity = 1
+    layer.add(a, forKey: "in")
+    tick()
+    timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.tick() }
+    RunLoop.main.add(timer!, forMode: .common)
+  }
+
+  func stop() { timer?.invalidate() }
+
+  func tick() {
+    let m = source()
+    let onScreen = screen.frame.contains(m)
+    // Centre the halo on the arrow's body, a little below and right of the hotspot.
+    let p = CGPoint(x: m.x - screen.frame.minX + 4, y: m.y - screen.frame.minY - 7)
+    history.insert(p, at: 0)
+    if history.count > trail.count * 2 { history.removeLast() }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    layer.isHidden = !onScreen
+    halo.position = p
+    for (i, d) in trail.enumerated() { d.position = history[min(history.count - 1, i * 2)] }
+    CATransaction.commit()
+  }
+}
+
 final class ControlOverlay {
   let window: NSPanel
-  let edge: GlowStroke
-  let pill: NSView
+  let edge: LayerView
+  let draws: [CAShapeLayer]
+  let cursor: CursorHalo
   let pillBox: LayerView
-  let orb: Orb
+  let pill: NSView
+  let row: NSStackView
+  let dot = CALayer()
   let ring = CAShapeLayer()
   let caption: NSTextField
   let endGlyph = NSImageView()
-  let keycap: NSView
+  let esc: NSView
 
   init() {
     let screen = mainScreen
@@ -493,113 +517,176 @@ final class ControlOverlay {
     let root = LayerView(frame: NSRect(origin: .zero, size: screen.frame.size))
     window.contentView = root
 
-    edge = GlowStroke(frame: root.bounds, paths: splitRoundedRect(root.bounds, radius: 14),
-                      strands: [(10, 0, 1), (34, 14, 0.95), (110, 48, 0.75)], spin: 6)
-    edge.breathe(0.72, period: 1.7)
+    // Screen edge: a terracotta line over a warm inner glow, drawn out from the pill.
+    edge = LayerView(frame: root.bounds)
+    let b = root.bounds, r: CGFloat = 12
+    let glow = CALayer()
+    glow.frame = b
+    glow.filters = blur(34)
+    glow.opacity = 0.3
+    let lineRect = b.insetBy(dx: 1.5, dy: 1.5)
+    var drawn: [CAShapeLayer] = []
+    for half in splitRoundedRect(b, radius: r) {
+      let g = stroke(half, b, width: 70, color: Palette.accent)
+      glow.addSublayer(g)
+      drawn.append(g)
+    }
+    edge.layer!.addSublayer(glow)
+    for half in splitRoundedRect(lineRect, radius: r) {
+      let l = stroke(half, b, width: 4, color: Palette.accent)
+      edge.layer!.addSublayer(l)
+      drawn.append(l)
+    }
+    draws = drawn
+    if !reduceMotion {
+      // Bright on arrival, then it settles into a slow breath.
+      let settle = CABasicAnimation(keyPath: "opacity")
+      settle.fromValue = 0.5
+      settle.toValue = 0.3
+      settle.duration = 1.2
+      settle.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      glow.add(settle, forKey: "settle")
+      let breathe = CABasicAnimation(keyPath: "opacity")
+      breathe.fromValue = 0.3
+      breathe.toValue = 0.2
+      breathe.beginTime = CACurrentMediaTime() + 1.2
+      breathe.duration = 1.8
+      breathe.autoreverses = true
+      breathe.repeatCount = .infinity
+      breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      glow.add(breathe, forKey: "breathe")
+    }
     root.addSubview(edge)
 
-    // Pill: [orb + time ring]  <agent> has control  [esc]
-    orb = Orb(diameter: 16, symbol: nil, halo: false)
-    let ringBox = LayerView(frame: NSRect(x: 0, y: 0, width: 26, height: 26))
-    orb.frame.origin = CGPoint(x: (26 - orb.frame.width) / 2, y: (26 - orb.frame.height) / 2)
-    ringBox.addSubview(orb)
+    // Pill (ivory, hairline edge, soft shadow): [time ring + dot]  Claude has control  [esc]
+    let ringBox = LayerView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+    fixedSize(ringBox, 20, 20)
+    let track = stroke(CGPath(ellipseIn: ringBox.bounds.insetBy(dx: 1, dy: 1), transform: nil), ringBox.bounds, width: 1.5, color: Palette.hairline)
     ring.frame = ringBox.bounds
-    ring.path = CGPath(ellipseIn: ringBox.bounds.insetBy(dx: 1.25, dy: 1.25), transform: nil)
-    ring.lineWidth = 2
+    ring.path = CGPath(ellipseIn: ringBox.bounds.insetBy(dx: 1, dy: 1), transform: nil)
+    ring.lineWidth = 1.5
     ring.lineCap = .round
     ring.fillColor = nil
-    ring.strokeColor = NSColor.labelColor.withAlphaComponent(0.55).cgColor
+    ring.strokeColor = Palette.accent.cgColor
     // Start at 12 o'clock and drain counter-clockwise.
     ring.transform = CATransform3DConcat(CATransform3DMakeScale(-1, 1, 1), CATransform3DMakeRotation(.pi / 2, 0, 0, 1))
+    dot.bounds = CGRect(x: 0, y: 0, width: 7, height: 7)
+    dot.position = CGPoint(x: 10, y: 10)
+    dot.cornerRadius = 3.5
+    dot.backgroundColor = Palette.accent.cgColor
+    if !reduceMotion {
+      let pulse = CABasicAnimation(keyPath: "transform.scale")
+      pulse.fromValue = 0.8
+      pulse.toValue = 1.15
+      pulse.duration = 0.9
+      pulse.autoreverses = true
+      pulse.repeatCount = .infinity
+      pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      dot.add(pulse, forKey: "pulse")
+    }
+    ringBox.layer!.addSublayer(track)
     ringBox.layer!.addSublayer(ring)
-    endGlyph.symbolConfiguration = .init(pointSize: 15, weight: .semibold)
+    ringBox.layer!.addSublayer(dot)
+    endGlyph.symbolConfiguration = .init(pointSize: 13, weight: .semibold)
     endGlyph.frame = ringBox.bounds
     endGlyph.alphaValue = 0
     ringBox.addSubview(endGlyph)
-    ringBox.translatesAutoresizingMaskIntoConstraints = false
-    ringBox.widthAnchor.constraint(equalToConstant: 26).isActive = true
-    ringBox.heightAnchor.constraint(equalToConstant: 26).isActive = true
 
-    caption = text("\(agentName) has control", 13, .semibold)
-    let esc = text("esc", 11, .semibold, .secondaryLabelColor)
-    keycap = NSView()
-    keycap.wantsLayer = true
-    keycap.layer?.cornerRadius = 6
-    keycap.layer?.cornerCurve = .continuous
-    keycap.layer?.borderWidth = 1
-    keycap.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.22).cgColor
-    keycap.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
-    esc.translatesAutoresizingMaskIntoConstraints = false
-    keycap.addSubview(esc)
-    keycap.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([
-      esc.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
-      esc.centerYAnchor.constraint(equalTo: keycap.centerYAnchor),
-      keycap.widthAnchor.constraint(equalToConstant: 34),
-      keycap.heightAnchor.constraint(equalToConstant: 22),
-    ])
-    let row = NSStackView(views: [ringBox, caption, keycap])
+    caption = text("\(agentName) has control", 13, .medium, Palette.ink)
+    esc = keycap("esc")
+    row = NSStackView(views: [ringBox, caption, esc])
     row.spacing = 10
-    row.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
-    let size = NSSize(width: row.fittingSize.width, height: 46)
+    row.alignment = .centerY
+    row.translatesAutoresizingMaskIntoConstraints = false
+    let h: CGFloat = 42
+    let w = row.fittingSize.width + 28
     let vf = screen.visibleFrame
-    let origin = NSPoint(x: root.bounds.midX - size.width / 2, y: vf.minY - screen.frame.minY + 26)
-    pillBox = LayerView(frame: NSRect(x: origin.x - 40, y: origin.y - 40, width: size.width + 80, height: size.height + 80))
-    pill = glass(NSRect(x: 40, y: 40, width: size.width, height: size.height), radius: size.height / 2)
-    row.frame = pill.bounds
-    setGlassContent(pill, row)
+    // Hangs under the notch: the one spot no app puts its own controls in.
+    let pillRect = NSRect(x: root.bounds.midX - w / 2, y: vf.maxY - screen.frame.minY - h - 8, width: w, height: h)
+    pillBox = LayerView(frame: pillRect.insetBy(dx: -40, dy: -40))
+    pill = surface(NSRect(x: 40, y: 40, width: w, height: h), radius: h / 2)
+    pill.addSubview(row)
+    NSLayoutConstraint.activate([
+      row.centerXAnchor.constraint(equalTo: pill.centerXAnchor),
+      row.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+    ])
     pillBox.addSubview(pill)
     root.addSubview(pillBox)
+    cursor = CursorHalo(screen: screen, in: root.layer!)
   }
 
   func show(seconds: Int) {
     window.orderFrontRegardless()
-    edge.drawOn(0.9)
-    let fade = CABasicAnimation(keyPath: "opacity")
-    fade.fromValue = 0
-    fade.toValue = 1
-    fade.duration = 0.5
-    edge.layer!.add(fade, forKey: "in")
-    springIn(pillBox, from: 0.6, dy: -24, delay: 0.15)
-    let drain = CABasicAnimation(keyPath: "strokeEnd")
-    drain.fromValue = 1
-    drain.toValue = 0
-    drain.duration = CFTimeInterval(seconds)
-    drain.fillMode = .forwards
-    drain.isRemovedOnCompletion = false
-    ring.add(drain, forKey: "drain")
+    if !reduceMotion {
+      for d in draws {
+        let a = CABasicAnimation(keyPath: "strokeEnd")
+        a.fromValue = 0
+        a.toValue = 1
+        a.duration = 0.6
+        a.beginTime = CACurrentMediaTime() + 0.15
+        a.fillMode = .backwards
+        a.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.7, 0.2, 1)
+        d.add(a, forKey: "draw")
+      }
+    }
+    springIn(pillBox, from: 0.8, dy: 26)
+    cursor.start()
+    let a = CABasicAnimation(keyPath: "strokeEnd")
+    a.fromValue = 1
+    a.toValue = 0
+    a.duration = CFTimeInterval(seconds)
+    a.fillMode = .forwards
+    a.isRemovedOnCompletion = false
+    ring.add(a, forKey: "drain")
   }
 
-  /// Finish: the pill says what happened, the glow lets go, then everything leaves.
-  /// `byUser` adds Apple's "no" shake. `then` runs once it is all gone.
+  /// Finish: the pill says what happened and tightens to fit, the edge and the halo let go,
+  /// then everything leaves. `byUser` adds the macOS "no" shake. `then` runs once it is all gone.
   func finish(byUser: Bool, then: @escaping () -> Void) {
-    endGlyph.image = NSImage(systemSymbolName: byUser ? "hand.raised.fill" : "checkmark.circle.fill", accessibilityDescription: nil)
-    endGlyph.contentTintColor = byUser ? .systemOrange : .systemGreen
-    let swap = CATransition()
-    swap.type = .fade
-    swap.duration = 0.2
-    caption.layer?.add(swap, forKey: "swap")
-    caption.stringValue = byUser ? "Stopped" : "Back to you"
-    NSAnimationContext.runAnimationGroup { ctx in
-      ctx.duration = 0.2
-      orb.animator().alphaValue = 0
-      endGlyph.animator().alphaValue = 1
-      keycap.animator().alphaValue = 0
-    }
+    cursor.stop()
+    endGlyph.image = NSImage(systemSymbolName: byUser ? "hand.raised.fill" : "checkmark", accessibilityDescription: nil)
+    endGlyph.contentTintColor = byUser ? Palette.accent : Palette.ink
     ring.removeAllAnimations()
     ring.opacity = 0
+    dot.opacity = 0
+    esc.isHidden = true
+    // Old words out (0.1 s), then new words in (0.15 s) while the pill tightens to fit.
+    NSAnimationContext.runAnimationGroup({ ctx in
+      ctx.duration = 0.1
+      caption.animator().alphaValue = 0
+    }, completionHandler: { [self] in
+      caption.stringValue = byUser ? "Stopped" : "Back to you"
+      let w = row.fittingSize.width + 28
+      var f = pill.frame
+      f.origin.x += (f.width - w) / 2
+      f.size.width = w
+      NSAnimationContext.runAnimationGroup { ctx in
+        ctx.duration = 0.25
+        ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+        ctx.allowsImplicitAnimation = true
+        caption.animator().alphaValue = 1
+        endGlyph.animator().alphaValue = 1
+        pill.animator().frame = f
+      }
+    })
     if byUser && !reduceMotion, let l = pillBox.layer {
       let shake = CAKeyframeAnimation(keyPath: "sublayerTransform.translation.x")
-      shake.values = [0, -9, 8, -6, 4, -2, 0]
-      shake.duration = 0.42
+      shake.values = [0, -8, 7, -5, 3, -1, 0]
+      shake.duration = 0.4
       l.add(shake, forKey: "shake")
     }
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.toValue = 0
+    fade.duration = 0.3
+    fade.fillMode = .forwards
+    fade.isRemovedOnCompletion = false
+    cursor.layer.add(fade, forKey: "out")
     NSAnimationContext.runAnimationGroup { ctx in
-      ctx.duration = 0.55
+      ctx.duration = 0.45
       edge.animator().alphaValue = 0
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [self] in
-      fadeAway(pillBox, to: 0.85, dy: -10, duration: 0.25) { [self] in
+      fadeAway(pillBox, to: 0.9, dy: -8, duration: 0.22) { [self] in
         window.orderOut(nil)
         then()
       }
