@@ -6,6 +6,7 @@
 set -u
 BIN="$(cd "$(dirname "${1:-./ask-control}")" && pwd)/$(basename "${1:-./ask-control}")"
 export ASK_CONTROL_DIR="$(mktemp -d)"
+[ -d "$ASK_CONTROL_DIR" ] || { echo "no temp dir, not testing"; exit 1; }
 trap 'rm -rf "$ASK_CONTROL_DIR"; [ -n "${SLEEPER:-}" ] && kill "$SLEEPER" 2>/dev/null' EXIT
 pass=0 fail=0
 
