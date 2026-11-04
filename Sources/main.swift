@@ -11,8 +11,10 @@ import Darwin
 
 // MARK: - State files
 
-let stateDir = FileManager.default.homeDirectoryForCurrentUser
-  .appendingPathComponent(".cache/ask-control")
+// ASK_CONTROL_DIR moves the state files elsewhere (the tests use it so they never touch a real
+// control window); the default is the documented ~/.cache/ask-control.
+let stateDir = ProcessInfo.processInfo.environment["ASK_CONTROL_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+  ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/ask-control")
 let stopPath = stateDir.appendingPathComponent("stop").path
 let activePath = stateDir.appendingPathComponent("active").path
 let logPath = stateDir.appendingPathComponent("log").path
@@ -107,7 +109,18 @@ final class KeyPanel: NSPanel {
   override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
-let mainScreen = NSScreen.screens.first!  // the screen with the menu bar
+// Check the request before touching AppKit, so a bad call or a shell with no GUI gets its
+// exit code instead of a crash on a missing screen.
+if !demoMode {
+  guard let r = reason, !r.trimmingCharacters(in: .whitespaces).isEmpty else { say("say what and why\n\(usage)"); exit(2) }
+  if CGSessionCopyCurrentDictionary() == nil { say("no GUI session, denied"); log("DENY no-gui: \(r)"); exit(1) }
+}
+guard let firstScreen = NSScreen.screens.first else {
+  say("no screen to show the card on, denied")
+  if let reason { log("DENY no-screen: \(reason)") }
+  exit(1)
+}
+let mainScreen = firstScreen  // the screen with the menu bar
 
 if demoMode {
   // A scripted walkthrough of the real UI. Nothing touches the real mouse or keyboard.
@@ -117,8 +130,7 @@ if demoMode {
   demo.run()
   app.run()
 }
-guard let reason, !reason.trimmingCharacters(in: .whitespaces).isEmpty else { say("say what and why\n\(usage)"); exit(2) }
-if CGSessionCopyCurrentDictionary() == nil { say("no GUI session, denied"); log("DENY no-gui: \(reason)"); exit(1) }
+guard let reason else { exit(2) }  // checked above
 
 
 
