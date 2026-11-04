@@ -1,0 +1,18 @@
+name: build
+# Does it build and keep its exit codes on the macOS versions people actually run?
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sw_vers && swiftc --version
+      - run: make
+      - run: make test
