@@ -23,7 +23,12 @@ git clone https://github.com/yakubmurcek/ask-control
 cd ask-control && make install   # builds with swiftc into ~/.local/bin
 ```
 
-You need macOS and the Xcode command line tools (`xcode-select --install`). Tested on macOS 27.
+`~/.local/bin` is not on a fresh Mac's PATH. If `ask-control` comes back "command not found",
+`make install` has printed the line to add to `~/.zshrc`, or install elsewhere:
+`make install PREFIX=/usr/local` (may need `sudo`).
+
+You need the Xcode command line tools (`xcode-select --install`). It builds and passes its
+tests on macOS 14, 15 and 26 in CI; the card and the stop are tried by hand on macOS 27.
 
 See it without handing anything over: `ask-control --demo` plays the whole flow with a drawn cursor. Your real mouse and keyboard are never touched.
 
